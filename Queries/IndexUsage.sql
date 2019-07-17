@@ -1,17 +1,25 @@
 DECLARE @start_time      DATETIME2,
-        @stale_time      INT           = 336, --how long (in hours) without being read is considered stale?
-        @restart_cut_off INT           = 336, --how long (in hours) after a restart is too soon for data to be considered?
-        @command         NVARCHAR(MAX) = N'',
-		    @only_low_use	   BIT           = 0
+        @stale_time      INT           = 336, --336, --how long (in hours) without being read is considered stale?
+        @restart_cut_off INT           = 120, --336, --how long (in hours) after a restart is too soon for data to be considered?
+        @only_low_use    BIT           = 0,
+        @command         NVARCHAR(MAX) = N''
 ;
 SELECT @start_time = sqlserver_start_time
 FROM  sys.dm_os_sys_info
 ;
 
 IF DATEDIFF(HOUR, @start_time, GETDATE()) < @restart_cut_off
-      PRINT 'Server restart too recent. Last restart was ' + CAST(@start_time AS VARCHAR(25)) + ' ('
-            + CAST(DATEDIFF(HOUR, @start_time, GETDATE()) AS VARCHAR(10)) + ' hours ago, threshhold currently set to '
-            + CAST(@restart_cut_off AS VARCHAR(10)) + ')'
+      BEGIN
+            SET @command
+                  = @command + N'Server restart too recent. Last restart was ' + CAST(@start_time AS VARCHAR(25))
+                    + N' (' + CAST(DATEDIFF(HOUR, @start_time, GETDATE()) AS VARCHAR(10))
+                    + N' hours ago, threshhold currently set to ' + CAST(@restart_cut_off AS VARCHAR(10)) + N')'
+            ;
+            RAISERROR(@command, -1, -1)
+            ;
+            RETURN
+            ;
+      END
       ;
 ELSE
       SET @command
@@ -90,18 +98,20 @@ FROM
                      dmius.last_system_scan,
                      dmius.last_system_lookup
       ) index_basics
-      --WHERE index_basics.type_desc <> ''heap'' --heaps are unintersting
+      WHERE index_basics.type_desc <> ''heap'' --heaps are unintersting
 ) index_combined'
+      ;
 
 IF @only_low_use = 1
-	SET @command = @command +
-
-	' WHERE (index_combined.most_recent_read IS NULL
+      SET @command
+            = @command
+              + N' WHERE (index_combined.most_recent_read IS NULL
 	      OR DATEDIFF(HOUR, index_combined.most_recent_read, GETDATE()) >=' + CAST(@stale_time AS VARCHAR(10))
-	              + N') --show no-read or stale-read indexes
+              + N') --show no-read or stale-read indexes
 	      AND index_combined.type_desc = ''NONCLUSTERED''
 		  '
-SET @command = @command + 
-' ORDER BY table_name, index_name;'
-EXECUTE(@command)
+      ;
+SET @command = @command + N' ORDER BY table_name, index_name;'
+;
+EXEC sys.sp_executesql @stmt = @command
 ;
