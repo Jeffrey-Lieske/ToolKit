@@ -43,4 +43,7 @@ join pg_namespace ns
 on cl.relnamespace = ns.oid
 WHERE cl.relkind = 'r'
  
- 
+ --get all columns and their comments for a table
+ select *, col_description (attrelid,attnum)
+from pg_attribute
+where attrelid = 6685055
